@@ -1,6 +1,35 @@
 use clap::{Command, AppSettings, Arg, ArgMatches};
 use std::path::{Path, PathBuf};
 use anyhow::{Result};
+use std::{time, thread};
+use std::sync::mpsc::channel;
+use std::fmt;
+use std::error::Error;
+
+
+#[derive(Debug)]
+struct InvalidFile {
+    file: String
+}
+
+impl InvalidFile {
+    fn new(file: &str) -> InvalidFile {
+        InvalidFile{file: file.to_string()}
+    }
+}
+
+impl fmt::Display for InvalidFile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,"{} is not a file !",self.file)
+    }
+}
+
+impl Error for InvalidFile {
+    fn description(&self) -> &str {
+        &self.file
+    }
+}
+
 
 
 struct Sigma2Splunk {
@@ -12,13 +41,18 @@ struct Sigma2Splunk {
 }
 
 impl Sigma2Splunk {
-    pub fn from_matches(matches: &ArgMatches) -> Result<Self> {
+    pub fn from_matches(matches: &ArgMatches) -> Result<Self, InvalidFile> {
 
         let rules = PathBuf::from(
             matches
                 .value_of("RULES")
                 .expect(""),
         );
+        if !rules.is_file() {
+            let rules_str = rules.into_os_string().into_string().unwrap();
+            return Err(InvalidFile::new(&rules_str));    
+        }
+
         let username = matches.value_of("username").unwrap().to_string();
         let password = matches.value_of("password").unwrap().to_string();
         let index = matches.value_of("index").unwrap().to_string();
@@ -38,13 +72,40 @@ impl Sigma2Splunk {
         })
     }
 
+    fn run_query(query: String) -> Result<()> {
+        println!("!!! {:?}", thread::current().id());
+
+        Ok(())
+    }
+
     pub fn run(&mut self) -> Result<()> {
-        println!("aaa{:?}", self.username);
+        println!("aaa {:?}", self.rules);
+
+        // let pool = rayon::ThreadPoolBuilder::new()
+        //     .num_threads(self.threads)
+        //     .build()
+        //     .unwrap();
+
+        // let (tx, rx) = channel();
+        // for _ in 0..10 {
+        //     let tx = tx.clone();
+        //     pool.spawn(move || {
+        //         tx.send(Sigma2Splunk::run_query("lol".to_string()).unwrap());
+        //     });
+        // }
+        // drop(tx);
+        // let res: Vec<()> = rx.into_iter().collect();
         Ok(())
     }
 }
 
 fn is_uint(value: &str) -> Result<(), String> {
+    match value.parse::<usize>() {
+        Ok(_) => Ok(()),
+        Err(_) => Err("Expected value to be a positive number.".to_owned()),
+    }
+}
+fn is_file(value: &str) -> Result<(), String> {
     match value.parse::<usize>() {
         Ok(_) => Ok(()),
         Err(_) => Err("Expected value to be a positive number.".to_owned()),
