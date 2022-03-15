@@ -1,11 +1,13 @@
-use clap::{Command, AppSettings, Arg, ArgMatches};
-use std::path::{Path, PathBuf};
-use anyhow::{Result};
-use std::{time, thread};
-use std::sync::mpsc::channel;
+use clap::{AppSettings, Arg, ArgMatches};
+use std::path::PathBuf;
+use anyhow::Result;
 use std::fmt;
 use std::error::Error;
-
+use walkdir::WalkDir;
+use std::process::Command;
+use yaml_rust::YamlLoader;
+use std::collections::HashMap;
+use http_auth_basic::Credentials;
 
 #[derive(Debug)]
 struct InvalidFile {
@@ -20,7 +22,7 @@ impl InvalidFile {
 
 impl fmt::Display for InvalidFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,"{} is not a file !",self.file)
+        write!(f,"{} does not exists !",self.file)
     }
 }
 
@@ -30,13 +32,12 @@ impl Error for InvalidFile {
     }
 }
 
-
-
 struct Sigma2Splunk {
     threads: usize,
     username: String,
     password: String,
     index: String,
+    splunk: String,
     rules: PathBuf
 }
 
@@ -48,7 +49,7 @@ impl Sigma2Splunk {
                 .value_of("RULES")
                 .expect(""),
         );
-        if !rules.is_file() {
+        if !rules.exists() {
             let rules_str = rules.into_os_string().into_string().unwrap();
             return Err(InvalidFile::new(&rules_str));    
         }
@@ -56,6 +57,7 @@ impl Sigma2Splunk {
         let username = matches.value_of("username").unwrap().to_string();
         let password = matches.value_of("password").unwrap().to_string();
         let index = matches.value_of("index").unwrap().to_string();
+        let splunk = matches.value_of("splunk").unwrap().to_string();
 
         let threads = matches
             .value_of("threads")
@@ -68,33 +70,82 @@ impl Sigma2Splunk {
             username,
             password,
             index,
+            splunk,
             rules
         })
     }
 
-    fn run_query(query: String) -> Result<()> {
-        println!("!!! {:?}", thread::current().id());
+    fn run_query<P: Into<PathBuf>>(&self, rule: P) -> Result<()> {
+        let file = rule.into();
+        let output = Command::new("sigma/sigmac")
+            .args(["-t", "splunk", "-c", "sigma/config.yml", &file.clone().into_os_string().into_string().unwrap()])
+            .output()?;
+        let stdout = String::from_utf8(output.stdout)?;
+        if stdout.is_empty() {
+            println!("Could not generate a rule from {:?}", file)
+        } else {
+            let rule_content = std::fs::read_to_string(&file).unwrap();
+            let rule = &YamlLoader::load_from_str(&rule_content).unwrap()[0];
 
+            let mut tags = Vec::new();
+            for tag in rule["tags"].as_vec().unwrap() {
+                tags.push(tag.as_str().unwrap())
+            }
+
+            //let query = format!("search index={} {} | collect index=alertes marker=\"title={},tags={}\"", self.index, stdout.trim(), rule["title"].as_str().unwrap(), tags.join(","));
+            let query = format!("search index={} \"Coupon code is not valid\" | eval rule_name=\"{}\", tags=\"{}\" | collect index=alertes output_format=hec", self.index, rule["title"].as_str().unwrap(), tags.join(","));
+
+            println!("Successfully generated rule: {}", query);
+
+            let route = "/services/search/jobs".to_string();
+            let resp = reqwest::blocking::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap()
+                .post(self.splunk.to_owned() + &route)
+                .header("Authorization", Credentials::new("analyst", "analyst!").as_http_header())
+                .form(&[("search", query)])
+                .send()?;
+
+                if resp.status().is_success() {
+                    println!("aaaaaaaa {:?} == ", resp.text()? );
+                }
+        }
         Ok(())
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        println!("aaa {:?}", self.rules);
+    pub fn run_many_queries(&self) -> Result<()> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.threads)
+            .build()
+            .unwrap();
+    
+        let (tx, rx) = std::sync::mpsc::channel();
+        pool.scope(move |s| {
+            for file in WalkDir::new(&self.rules).into_iter().filter_map(|file| file.ok()) {
+                if file.metadata().unwrap().is_file() {
+                    let tx = tx.clone();
+                    s.spawn(move |_| {
+                        tx
+                            .send(self.run_query(file.path()).unwrap())
+                            .expect("Unable to send task");
+                    });
+                }
+            }
+            drop(tx);
+            let _res: Vec<()> = rx.into_iter().collect();
+        });
+        Ok(())
+    }
 
-        // let pool = rayon::ThreadPoolBuilder::new()
-        //     .num_threads(self.threads)
-        //     .build()
-        //     .unwrap();
-
-        // let (tx, rx) = channel();
-        // for _ in 0..10 {
-        //     let tx = tx.clone();
-        //     pool.spawn(move || {
-        //         tx.send(Sigma2Splunk::run_query("lol".to_string()).unwrap());
-        //     });
-        // }
-        // drop(tx);
-        // let res: Vec<()> = rx.into_iter().collect();
+    pub fn run(&self) -> Result<()> {
+        if self.rules.is_file() {
+            println!("Running a single rule from {:?}", self.rules);
+            self.run_query(&self.rules)?;
+        } else if self.rules.is_dir() {
+            println!("Running all rules from {:?}", self.rules);
+            self.run_many_queries()?;
+        }
         Ok(())
     }
 }
@@ -105,20 +156,23 @@ fn is_uint(value: &str) -> Result<(), String> {
         Err(_) => Err("Expected value to be a positive number.".to_owned()),
     }
 }
-fn is_file(value: &str) -> Result<(), String> {
-    match value.parse::<usize>() {
-        Ok(_) => Ok(()),
-        Err(_) => Err("Expected value to be a positive number.".to_owned()),
-    }
-}
+
 
 fn main() -> Result<()> {
-    let matches = Command::new("Sigma 2 Splunk")
+    let matches = clap::Command::new("Sigma 2 Splunk")
         .setting(AppSettings::DeriveDisplayOrder)
         .author("ljk")
         .about("Run sigma queries against a splunk instance.")
         .version(env!("CARGO_PKG_VERSION"))
         .arg(Arg::new("RULES").required(true))
+        .arg(
+            Arg::new("splunk")
+                .long("splunk")
+                .short('s')
+                .takes_value(true)
+                .help("Splunk management url (eg: https://splunk.fak:8089)")
+                .required(true),
+        )
         .arg(
             Arg::new("username")
                 .long("username")

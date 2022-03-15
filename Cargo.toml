@@ -7,5 +7,9 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "3.1.6", features = ["derive"] }
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+http-auth-basic = "0.3.1"
 anyhow = "1.0.56"
 rayon = "1.5.1"
+walkdir = "2"
+yaml-rust = "0.4"
