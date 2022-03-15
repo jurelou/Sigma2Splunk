@@ -8,6 +8,13 @@ use std::process::Command;
 use yaml_rust::YamlLoader;
 use std::collections::HashMap;
 use http_auth_basic::Credentials;
+use std::{thread, time::Duration};
+
+// #[derive(Debug, Deserialize)]
+// struct Document {
+//     sid: Option<String>,
+// }
+
 
 #[derive(Debug)]
 struct InvalidFile {
@@ -105,7 +112,24 @@ impl Sigma2Splunk {
                 .header("Authorization", Credentials::new("analyst", "analyst!").as_http_header())
                 .form(&[("search", query)])
                 .send()?;
+            
+            // let start_sid = &resp.text()?.find("<sid>").unwrap_or(0);
+            // let end_sid = &resp.text()?.find("<").unwrap_or(line.len());
 
+            // let result = &line[start_bytes..end_bytes];
+
+            // println!("aaaaaaa {:?}", parser);
+            // let check_route = "/services/search/jobs/".to_string();
+
+            // loop {
+            //     thread::sleep(Duration::from_millis(2000));
+            //     println!("Asking for state");
+            //     // let resp = reqwest::blocking::Client::builder()
+            //     //     .danger_accept_invalid_certs(true)
+            //     //     .build()
+            //     //     .unwrap()
+            //     //     .post(self.splunk.to_owned() + &route)
+            // }
                 if resp.status().is_success() {
                     println!("aaaaaaaa {:?} == ", resp.text()? );
                 }
