@@ -6,14 +6,8 @@ use std::error::Error;
 use walkdir::WalkDir;
 use std::process::Command;
 use yaml_rust::YamlLoader;
-use std::collections::HashMap;
 use http_auth_basic::Credentials;
 use std::{thread, time::Duration};
-
-// #[derive(Debug, Deserialize)]
-// struct Document {
-//     sid: Option<String>,
-// }
 
 
 #[derive(Debug)]
@@ -45,6 +39,7 @@ struct Sigma2Splunk {
     password: String,
     index: String,
     splunk: String,
+    earliest: String,
     rules: PathBuf
 }
 
@@ -65,6 +60,7 @@ impl Sigma2Splunk {
         let password = matches.value_of("password").unwrap().to_string();
         let index = matches.value_of("index").unwrap().to_string();
         let splunk = matches.value_of("splunk").unwrap().to_string();
+        let earliest = matches.value_of("earliest").unwrap().to_string();
 
         let threads = matches
             .value_of("threads")
@@ -78,6 +74,7 @@ impl Sigma2Splunk {
             password,
             index,
             splunk,
+            earliest,
             rules
         })
     }
@@ -95,44 +92,58 @@ impl Sigma2Splunk {
             let rule = &YamlLoader::load_from_str(&rule_content).unwrap()[0];
 
             let mut tags = Vec::new();
+            
             for tag in rule["tags"].as_vec().unwrap() {
                 tags.push(tag.as_str().unwrap())
             }
 
-            let query = format!("search index={} {} | eval rule_name=\"{}\", tags=\"{}\" | collect index=alertes output_format=hec", self.index, stdout.trim(), rule["title"].as_str().unwrap(), tags.join(","));
+            let query = format!("search index={} earliest=-{} {} | eval rule_name=\"{}\", tags=\"{}\" | collect index=alertes output_format=hec", 
+                self.index,
+                self.earliest,
+                stdout.trim(),
+                rule["title"].as_str().unwrap(),
+                tags.join(",")
+            );
 
-            println!("Successfully generated rule: {}", query);
+            // println!("Successfully generated rule: {}", query);
 
-            let route = "/services/search/jobs".to_string();
-            let resp = reqwest::blocking::Client::builder()
-                .danger_accept_invalid_certs(true)
-                .build()
-                .unwrap()
-                .post(self.splunk.to_owned() + &route)
-                .header("Authorization", Credentials::new("analyst", "analyst!").as_http_header())
-                .form(&[("search", query)])
-                .send()?;
+            // let route = "/services/search/jobs".to_string();
+            // let resp = reqwest::blocking::Client::builder()
+            //     .danger_accept_invalid_certs(true)
+            //     .build()
+            //     .unwrap()
+            //     .post(self.splunk.to_owned() + &route)
+            //     .header("Authorization", Credentials::new(&self.username, &self.password).as_http_header())
+            //     .form(&[("search", query)])
+            //     .send()?
+            //     .text()?;
+            // let start_sid = resp.find("<sid>").unwrap_or(0) + 5;
+            // let end_sid = resp.find("</sid>").unwrap_or(resp.len());
+            // let sid = &String::from(resp)[start_sid..end_sid];
             
-            // let start_sid = &resp.text()?.find("<sid>").unwrap_or(0);
-            // let end_sid = &resp.text()?.find("<").unwrap_or(line.len());
 
-            // let result = &line[start_bytes..end_bytes];
-
-            // println!("aaaaaaa {:?}", parser);
-            // let check_route = "/services/search/jobs/".to_string();
-
+            // let check_route = "/services/search/jobs/".to_string() + &sid;
             // loop {
             //     thread::sleep(Duration::from_millis(2000));
             //     println!("Asking for state");
-            //     // let resp = reqwest::blocking::Client::builder()
-            //     //     .danger_accept_invalid_certs(true)
-            //     //     .build()
-            //     //     .unwrap()
-            //     //     .post(self.splunk.to_owned() + &route)
+            //     let resp = reqwest::blocking::Client::builder()
+            //         .danger_accept_invalid_certs(true)
+            //         .build()
+            //         .unwrap()
+            //         .get(self.splunk.to_owned() + &check_route)
+            //         .header("Authorization", Credentials::new("analyst", "analyst!").as_http_header())
+            //         .send()?
+            //         .text()?;
+
+            //     let start_state = resp.find("dispatchState").unwrap_or(0) + 15;
+            //     let state = &String::from(resp)[start_state..];
+            //     if state.starts_with("FINALIZING") || state.starts_with("FAILED") || state.starts_with("DONE") {
+            //         println!("Done with {:?}", file);
+            //         break;
+            //     }
+
             // }
-                if resp.status().is_success() {
-                    println!("aaaaaaaa {:?} == ", resp.text()? );
-                }
+
         }
         Ok(())
     }
@@ -227,6 +238,14 @@ fn main() -> Result<()> {
                 .default_value("4")
                 .help("Number of parallel requests")
                 .validator(is_uint),
+        )
+        .arg(
+            Arg::new("earliest")
+                .long("earliest")
+                .short('e')
+                .takes_value(true)
+                .default_value("1y")
+                .help("Add `earliest=` to your searches"),
         )
         .get_matches();
 
