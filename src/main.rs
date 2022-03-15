@@ -96,7 +96,7 @@ impl Sigma2Splunk {
             for tag in rule["tags"].as_vec().unwrap() {
                 tags.push(tag.as_str().unwrap())
             }
-
+            println!("===");
             let query = format!("search index={} earliest=-{} {} | eval rule_name=\"{}\", tags=\"{}\" | collect index=alertes output_format=hec", 
                 self.index,
                 self.earliest,
@@ -105,44 +105,46 @@ impl Sigma2Splunk {
                 tags.join(",")
             );
 
-            // println!("Successfully generated rule: {}", query);
+            println!("Successfully generated rule: {}", query);
 
-            // let route = "/services/search/jobs".to_string();
-            // let resp = reqwest::blocking::Client::builder()
-            //     .danger_accept_invalid_certs(true)
-            //     .build()
-            //     .unwrap()
-            //     .post(self.splunk.to_owned() + &route)
-            //     .header("Authorization", Credentials::new(&self.username, &self.password).as_http_header())
-            //     .form(&[("search", query)])
-            //     .send()?
-            //     .text()?;
-            // let start_sid = resp.find("<sid>").unwrap_or(0) + 5;
-            // let end_sid = resp.find("</sid>").unwrap_or(resp.len());
-            // let sid = &String::from(resp)[start_sid..end_sid];
+            let route = "/services/search/jobs".to_string();
+            let resp = reqwest::blocking::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap()
+                .post(self.splunk.to_owned() + &route)
+                .header("Authorization", Credentials::new(&self.username, &self.password).as_http_header())
+                .form(&[("search", query)])
+                .send()?
+                .text()?;
+            let start_sid = resp.find("<sid>").unwrap_or(0) + 5;
+            let end_sid = resp.find("</sid>").unwrap_or(resp.len());
+            let sid = &String::from(resp)[start_sid..end_sid];
             
 
-            // let check_route = "/services/search/jobs/".to_string() + &sid;
-            // loop {
-            //     thread::sleep(Duration::from_millis(2000));
-            //     println!("Asking for state");
-            //     let resp = reqwest::blocking::Client::builder()
-            //         .danger_accept_invalid_certs(true)
-            //         .build()
-            //         .unwrap()
-            //         .get(self.splunk.to_owned() + &check_route)
-            //         .header("Authorization", Credentials::new("analyst", "analyst!").as_http_header())
-            //         .send()?
-            //         .text()?;
+            let check_route = "/services/search/jobs/".to_string() + &sid;
+            loop {
+                thread::sleep(Duration::from_millis(2000));
+                println!("Asking for state");
+                let resp = reqwest::blocking::Client::builder()
+                    .danger_accept_invalid_certs(true)
+                    .build()
+                    .unwrap()
+                    .get(self.splunk.to_owned() + &check_route)
+                    .header("Authorization", Credentials::new("analyst", "analyst!").as_http_header())
+                    .send()?
+                    .text()?;
 
-            //     let start_state = resp.find("dispatchState").unwrap_or(0) + 15;
-            //     let state = &String::from(resp)[start_state..];
-            //     if state.starts_with("FINALIZING") || state.starts_with("FAILED") || state.starts_with("DONE") {
-            //         println!("Done with {:?}", file);
-            //         break;
-            //     }
+                let start_state = resp.find("dispatchState").unwrap_or(0) + 15;
+                let state = &String::from(resp)[start_state..];
 
-            // }
+                println!("ask 4 state");
+                if state.starts_with("FINALIZING") || state.starts_with("FAILED") || state.starts_with("DONE") {
+                    println!("Done with {:?}", file);
+                    break;
+                }
+
+            }
 
         }
         Ok(())
@@ -150,7 +152,7 @@ impl Sigma2Splunk {
 
     pub fn run_many_queries(&self) -> Result<()> {
         let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(self.threads)
+            .num_threads(self.threads + 1)
             .build()
             .unwrap();
     
