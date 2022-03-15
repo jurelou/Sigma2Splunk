@@ -92,8 +92,7 @@ impl Sigma2Splunk {
                 tags.push(tag.as_str().unwrap())
             }
 
-            //let query = format!("search index={} {} | collect index=alertes marker=\"title={},tags={}\"", self.index, stdout.trim(), rule["title"].as_str().unwrap(), tags.join(","));
-            let query = format!("search index={} \"Coupon code is not valid\" | eval rule_name=\"{}\", tags=\"{}\" | collect index=alertes output_format=hec", self.index, rule["title"].as_str().unwrap(), tags.join(","));
+            let query = format!("search index={} {} | eval rule_name=\"{}\", tags=\"{}\" | collect index=alertes output_format=hec", self.index, stdout.trim(), rule["title"].as_str().unwrap(), tags.join(","));
 
             println!("Successfully generated rule: {}", query);
 
