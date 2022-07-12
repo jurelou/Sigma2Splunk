@@ -2,13 +2,11 @@
 Match sigma rules against splunk
 
 
-# Install dependencies
+# Run via docker
 
-Sigma:
-
-pip install -r sigma/sigma/requirements.txt --use-wheel --no-index --find-links sigma/sigma/wheels
-
+```
 docker run -v `pwd`/rules:/rules sigma2splunk --splunk https://192.168.10.42:8089 --username analyst --password analyst\! --index botsv2 --threads 8 --earliest 1h /rules/sysmon
+```
 
 # Run
 
