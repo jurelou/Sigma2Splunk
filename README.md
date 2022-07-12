@@ -5,6 +5,7 @@ Match sigma rules against splunk
 # Run via docker
 
 ```
+docker build -t sigma2splunk .
 docker run -v `pwd`/rules:/rules sigma2splunk --splunk https://192.168.10.42:8089 --username analyst --password analyst\! --index botsv2 --threads 8 --earliest 1h /rules/sysmon
 ```
 
